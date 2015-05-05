@@ -1,10 +1,11 @@
 import subprocess
 from subprocess import PIPE
 
-import logger
+import logging.config
 
-
-log = logger.get_logger(__name__)
+# It seems to be static, so we jsut need to declare on main class
+logging.config.fileConfig('../etc/logging.conf')
+log = logging.getLogger(__name__)
 
 class DoppelgangerRsync:
 
@@ -25,7 +26,7 @@ class DoppelgangerRsync:
         self.src_dirs = src_dirs
         self.exclude_dirs = exclude_dirs
         self.dst_dir = dst_dir
-        log.info("Teste")
+        log.debug("Intializing...")
 
     def execute(self):
         """
@@ -33,10 +34,15 @@ class DoppelgangerRsync:
         This is a blocking method.
         """
         if self.copy_type is "full":
+            log.debug("Executing full backup: copy_type=%s, src_dirs=%s, dst_dir=%s, exclude_dirs=%s, last_backup_dir=%s"
+                    % (self.copy_type, self.src_dirs, self.dst_dir, self.exclude_dirs, self.last_backup_dir))
             self.execute_full()
         elif self.copy_type is "diff":
-            print("DIFF")
+            log.debug("Executing diff backup: copy_type=%s, src_dirs=%s, dst_dir=%s, exclude_dirs=%s, last_backup_dir=%s"
+                    % (self.copy_type, self.src_dirs, self.dst_dir, self.exclude_dirs, self.last_backup_dir))
+            self.execute_diff()
         else:
+            log.error("You must specify the type of backup as 'full' or 'diff'")
             raise RsyncValidationError("copy type must be full or diff, but it was %s" % (self.copy_type))
 
     def raw_rsync_command(self):
@@ -47,10 +53,18 @@ class DoppelgangerRsync:
         --delete: delete extraneous files from dest dirs
         --recursive: tells rsync to copy directories recursively.
         --hard-links: preserve hard links
-        --archive: equivalent to -rlptgoD, preserve almost everything
-
+        --perms: preserve permissions
+        --owner: preserve owner
+        --group: preserve group
+        --times: preserve modification times
+        --devices: preserve device files
+        --specials: preserve special files
+        --links: copy symlinks as symlinks
         """
-        command = ["rsync", "--delete", "--recursive", "--hard-links", "--archive", "--progress"]
+#        command = ["rsync", "--delete", "--recursive", "--hard-links", "--archive", "--progress"]
+        command = ["rsync", "--delete", "--recursive", "--hard-links", "--progress",
+                "--perms", "--owner", "--group", "--times", "--devices", "--specials",
+                "--links"]
 
         if self.exclude_dirs is not None:
             for exclude_dir in self.exclude_dirs:
@@ -69,14 +83,43 @@ class DoppelgangerRsync:
         command.append(self.dst_dir)
         self.executes_command(command)
 
+    def execute_diff(self):
+        """
+        Executes a copy copy of the directories.
+
+        The parameters src_dirs, dst_dir and last_backup_dir must be declared at this point
+
+        The specified arguments here are:
+        --link-dest: hardlink to files in DIR when unchanged
+        """
+        command = self.raw_rsync_command()
+
+        if self.last_backup_dir is not None:
+            command.append("--link-dest=%s" % (self.last_backup_dir))
+
+        for src_dir in self.src_dirs:
+            command.append(src_dir)
+
+        command.append(self.dst_dir)
+        self.executes_command(command)
+
     def executes_command(self, command):
+        """
+        Creates a new process to execute the given comand.
+        The command must be in a list, where each argument is an element.
+        This is a blocking method, since we are using the stdout and stderr of the process.
+        """
+        log.info("Executing command: %s" % (command))
         proc = subprocess.Popen(command, shell=False, stdout=PIPE, stderr=PIPE)
         self.stream_watcher("stdout", proc.stdout)
         self.stream_watcher("stderr", proc.stderr)
 
     def stream_watcher(self, identifier, stream):
+        """
+        Consumes the lines outputed by stdout and stderr, wating when necessary.
+        By the end of the execution, it will close the stream.
+        """
         for line in stream:
-#        for line in iter(stream.readline, b''):
             self.send(line)
             stream.flush()
 
@@ -84,8 +127,12 @@ class DoppelgangerRsync:
             stream.close()
 
     def send(self, line):
-        #print repr("line: %s" % (line.split()[0]))
-        print("line: %s" % (line))
+        """
+        Send the line to the added listeners.
+        """
+        # TODO Should do more than log the output.
+        # In the future we are planning to create a progress bar based on this output.
+        log.debug("rsync -> %s" % (line))
 
 class RsyncValidationError(Exception):
 
@@ -93,9 +140,12 @@ class RsyncValidationError(Exception):
         super(RsyncValidationError, self).__init__(message)
 
 if __name__ == "__main__":
-    src_dirs = ["/tmp/doppelganger/test1", "/tmp/doppelganger/test2", "/tmp/doppelganger/test3", "/home/heitor/Downloads"]
-    dst_dir = "/media/heitor/amon/teste/"
-    exclude_dirs = ["/home/heitor/Downloads/teste", "/home/heitor/Downloads/teste2"]
+    #src_dirs = ["/tmp/doppelganger/test1", "/tmp/doppelganger/test2", "/tmp/doppelganger/test3", "/home/heitor/Downloads"]
+    src_dirs = ["/home/heitor/Documents", "/home/heitor/Downloads"]
+    dst_dir = "/media/heitor/amon/teste-2"
+    last_backup_dir = "/media/heitor/amon/teste"
+#    exclude_dirs = ["/home/heitor/Downloads/teste", "/home/heitor/Downloads/teste2"]
+    exclude_dirs = ["Downloads/teste", "Downloads/teste2"]
 
-    rsync = DoppelgangerRsync(src_dirs=src_dirs, dst_dir=dst_dir, exclude_dirs=exclude_dirs)
-#    rsync.execute()
+    rsync = DoppelgangerRsync(copy_type="diff", src_dirs=src_dirs, dst_dir=dst_dir, exclude_dirs=exclude_dirs, last_backup_dir=last_backup_dir)
+    rsync.execute()
