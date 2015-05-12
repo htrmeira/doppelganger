@@ -1,10 +1,8 @@
 import subprocess
+
+from logger import Logger as logging
 from subprocess import PIPE
 
-import logging.config
-
-# It seems to be static, so we jsut need to declare on main class
-logging.config.fileConfig('../etc/logging.conf')
 log = logging.getLogger(__name__)
 
 class DoppelgangerRsync:
@@ -13,7 +11,7 @@ class DoppelgangerRsync:
         """
         Executes rsync over the specified files and directories copying to the specified directory.
 
-        @copy_type [full, diff]: string specifying if the is a full copy or incremental one. MANDATORY
+        @copy_type [full, diff]: string specifying if the is a full copy or incremental one. If last_backup_dir is None, full copy will be forced. MANDATORY
         @src_dirs: list of directories to copy. MANDATORY
         @dst_dir: destination directory of the copies. MANDATORY
         @exclude_dirs: directories or files that are inside @src_dirs but must not be copied.
@@ -21,12 +19,16 @@ class DoppelgangerRsync:
                         This is mandatory for incremental copy, since a reference directory is necessary.
 
         """
-        self.copy_type = copy_type
         self.last_backup_dir = last_backup_dir
+        if last_backup_dir:
+            self.copy_type = copy_type
+        else:
+            self.copy_type = "full"
         self.src_dirs = src_dirs
         self.exclude_dirs = exclude_dirs
         self.dst_dir = dst_dir
-        log.debug("Intializing...")
+        log.info("executing rsync with: copy_type=%s, src_dirs=%s, dst_dir=%s, exclude_dirs=%s, last_backup_dir=%s"
+                % (copy_type, src_dirs, dst_dir, exclude_dirs, last_backup_dir))
 
     def execute(self):
         """
@@ -61,7 +63,6 @@ class DoppelgangerRsync:
         --specials: preserve special files
         --links: copy symlinks as symlinks
         """
-#        command = ["rsync", "--delete", "--recursive", "--hard-links", "--archive", "--progress"]
         command = ["rsync", "--delete", "--recursive", "--hard-links", "--progress",
                 "--perms", "--owner", "--group", "--times", "--devices", "--specials",
                 "--links"]
@@ -132,7 +133,7 @@ class DoppelgangerRsync:
         """
         # TODO Should do more than log the output.
         # In the future we are planning to create a progress bar based on this output.
-        log.debug("rsync -> %s" % (line))
+        print("rsync -> %s" % (line))
 
 class RsyncValidationError(Exception):
 
